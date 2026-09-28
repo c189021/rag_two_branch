@@ -47,7 +47,7 @@ uv pip install ipykernel nbconvert nbformat    # 노트북/스크립트 실행�
 | 파일 | 역할 |
 |---|---|
 | `pyproject.toml`, `uv.lock` | 설치 기준 (권장) |
-| `pre-requierments.txt` | 직접 필요한 패키지: ragas, python-dotenv, langchain 계열, chromadb, pypdf, datasets, pdfplumber(ch05_01), pymupdf·faiss-cpu(ch05_02) |
+| `pre-requirements.txt` | 직접 필요한 패키지: ragas, python-dotenv, langchain 계열, chromadb, pypdf, datasets, pdfplumber(ch05_01), pymupdf·faiss-cpu(ch05_02) |
 | `requirements.txt` | `uv pip freeze` 결과(유지보수용, 로컬 `-e` 항목 제외) |
 | `설치가이드.txt`, `import가이드.txt` | uv 프로젝트 생성·설치 절차, ragas import 메모 |
 
@@ -293,7 +293,7 @@ rag_two_branch/
 ├─ ch05_01.ipynb         Ragas 합성 테스트셋 생성
 ├─ ch05_02.ipynb         Ragas 일괄 평가
 ├─ run_rag.py            정답basic_3 실행·결과 확인 스크립트
-├─ pyproject.toml / uv.lock / requirements.txt / pre-requierments.txt
+├─ pyproject.toml / uv.lock / requirements.txt / pre-requirements.txt
 ├─ 설치가이드.txt / import가이드.txt
 └─ src/rag_two_branch/   패키지 골격
 ```
