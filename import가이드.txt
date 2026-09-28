@@ -1,0 +1,10 @@
+from ragas import evaluate
+from ragas.metrics import (
+    faithfulness,
+    answer_relevancy,
+    context_precision,
+    context_recall,
+)
+
+-------------------
+RAGAS 0.4.x 자체가 pydantic>=2.0, openai>=1.0, langchain, langchain-core, langchain-community, langchain_openai 등을 의존성으로 사용하고 있습니다.
