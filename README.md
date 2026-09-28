@@ -27,8 +27,12 @@ PDF → 페이지별 Document → chunk 분할 → 임베딩 → ChromaDB 저장
 | `정답basic_2.ipynb` | DB 영속성 | `pypdf`로 페이지별 Document 생성, `./chroma_db/basic`에 저장, 있으면 재사용 |
 | `정답basic_3.ipynb` | 완성형 RAG | 메타데이터·chunk ID, 해시 기반 DB 캐싱, 테스트 15개, 자체 검색 평가, 근거 표시 답변 |
 | `tryRagas.ipynb` | 평가 도구 입문 | 예제 1건으로 Ragas 지표 4개 사용법과 점수 변화 실험 |
+| `ch05_01.ipynb` | Ragas 실전 ① | SPRI AI Brief PDF에서 Ragas로 **합성 테스트셋(질문·정답) 10개 자동 생성** → CSV 저장 |
+| `ch05_02.ipynb` | Ragas 실전 ② | CSV 테스트셋으로 **별도 RAG(FAISS)를 실행**하고 Ragas 지표 4개로 **일괄 평가** |
 
-권장 학습 순서: basic_1 → basic_2 → basic_3 → tryRagas
+권장 학습 순서: basic_1 → basic_2 → basic_3 → tryRagas → ch05_01 → ch05_02
+
+> `ch05_*`는 원본 저장소 `skc4365/rag_two_branch`의 `f/Ragas` 브랜치(`ch05_ragas.ipynb/` 폴더)에서 가져왔고, 데이터 경로를 `../data/` → `./data/`로 수정했습니다. `가상Tech` 문서가 아니라 **SPRI AI Brief 2023년 12월호 PDF**를 사용합니다.
 
 ## 2. 환경 설정과 실행
 
@@ -43,8 +47,8 @@ uv pip install ipykernel nbconvert nbformat    # 노트북/스크립트 실행�
 | 파일 | 역할 |
 |---|---|
 | `pyproject.toml`, `uv.lock` | 설치 기준 (권장) |
-| `pre-requierments.txt` | 직접 필요한 패키지: ragas, python-dotenv, langchain 계열, chromadb, pypdf, datasets |
-| `requirements.txt` | `uv pip freeze` 결과(유지보수용). 원작성자 로컬 경로(`-e file:///E:/...`)가 있어 **그대로 설치하지 마세요.** |
+| `pre-requierments.txt` | 직접 필요한 패키지: ragas, python-dotenv, langchain 계열, chromadb, pypdf, datasets, pdfplumber(ch05_01), pymupdf·faiss-cpu(ch05_02) |
+| `requirements.txt` | `uv pip freeze` 결과(유지보수용, 로컬 `-e` 항목 제외) |
 | `설치가이드.txt`, `import가이드.txt` | uv 프로젝트 생성·설치 절차, ragas import 메모 |
 
 > `langchain-community==0.3.31`로 고정되어 있습니다. Ragas 0.4.3이 이 버전에 있는 옛 VertexAI 모듈을 import하기 때문입니다. (`pyproject.toml` 주석 참고)
@@ -102,6 +106,41 @@ $env:PYTHONUTF8=1; .venv\Scripts\python run_rag.py
 ### 3.4 tryRagas — Ragas 입문
 
 Ragas 0.4.3 기준으로, 질문 1건 · 검색 문서 2개 · 답변 1개 · 기준 답변 1개(`대한민국의 수도는?`)에 지표 4개를 적용해 보고, 요소를 하나씩 바꿔 점수가 어떻게 변하는지 확인하는 노트북입니다. 자세한 설명은 다음 절을 참고하세요.
+
+### 3.5 ch05_01 — Ragas 합성 테스트셋 생성
+
+평가를 하려면 (질문, 정답) 쌍이 필요한데, 사람이 만들기 어려우니 **Ragas의 `TestsetGenerator`가 문서에서 자동 생성**합니다.
+
+1. `PDFPlumberLoader`로 `./data/SPRI_AI_Brief_2023년12월호_F.pdf`(23쪽)를 로드하고 본문 `docs[3:-1]` 19쪽만 사용
+2. 생성 LLM `gpt-4o-mini`, 임베딩 `text-embedding-3-small`로 `TestsetGenerator.from_langchain(...)` 구성
+3. 문서 변환기(transforms) 적용: `SummaryExtractor`(요약) → `EmbeddingExtractor`(요약 임베딩) → `NERExtractor`(개체명 추출)
+4. `query_distribution`은 `SingleHopSpecificQuerySynthesizer` 100% — 한 페이지 안의 구체 개체 정보로 답할 수 있는 단일 문맥 질문만 생성
+5. `generate_with_langchain_docs(documents, testset_size=10, transforms, query_distribution, raise_exceptions=True)`로 10개 생성
+6. `testset.to_pandas()` → `./data/ragas_synthetic_dataset.csv`(UTF-8 BOM)로 저장
+
+생성된 열: `user_input`(질문), `reference_contexts`(정답 근거 원문), `reference`(정답), `persona_name`, `query_style`, `query_length`, `synthesizer_name`. 질문은 영어·한국어가 섞여서 나옵니다.
+
+> 매 실행마다 LLM이 새로 만들기 때문에 CSV 내용이 달라지고 OpenAI 비용이 발생합니다. 저장소에는 `f/Ragas` 브랜치에서 가져온 CSV를 그대로 두었습니다. 재생성하면 덮어써집니다.
+
+### 3.6 ch05_02 — Ragas로 RAG 일괄 평가
+
+1. CSV를 `pandas` → `datasets.Dataset`으로 변환. 문자열로 저장된 `reference_contexts`는 `ast.literal_eval`로 리스트로 복원
+2. **평가 대상 RAG 구성** (basic 시리즈와 별개): `PyMuPDFLoader` → `RecursiveCharacterTextSplitter(1000/50)` → `OpenAIEmbeddings` → **FAISS**(메모리) → retriever → 프롬프트 → `gpt-4o`(temperature 0) 체인
+3. 질문 10개에 대해 `retriever.batch()`로 **검색 문서**(`retrieved_contexts`), `chain.batch()`로 **답변**(`response`)을 수집해 데이터셋 열로 추가
+4. 평가용 LLM(`gpt-4o-mini`)과 임베딩을 LangChain 래퍼(`LangchainLLMWrapper`, `LangchainEmbeddingsWrapper`)로 감싸 `ragas.evaluate()` 실행 (레거시 방식)
+5. 지표: `Faithfulness`, `AnswerRelevancy(strictness=1)`, `LLMContextPrecisionWithReference`, `LLMContextRecall` — 질문 10개 × 지표 4개 = 40회 평가
+6. `result.to_pandas()`로 질문별 점수 확인
+
+**실행 결과 (2026-09-28, 저장소의 CSV 사용)**
+
+| 지표 | 평균 점수 | 해석 |
+|---|---:|---|
+| Faithfulness | 0.9833 | 답변이 검색 문서에 거의 전부 근거함 |
+| AnswerRelevancy | 0.6526 | 질문과의 관련성 (임베딩 유사도 기반이라 절대값은 낮게 나오는 편) |
+| LLMContextPrecisionWithReference | 0.9000 | 유용한 문서가 대체로 앞순위 |
+| LLMContextRecall | 1.0000 | 정답에 필요한 정보가 검색 결과에 모두 포함 |
+
+> tryRagas는 신규 방식(`ragas.metrics.collections` + `ascore()`), ch05_02는 `ragas.metrics` + `evaluate()` 방식입니다. 후자는 실행 시 "`AnswerRelevancy` import 경로가 v1.0에서 제거될 예정" 경고가 나옵니다. 동작에는 문제가 없습니다.
 
 ---
 
@@ -220,7 +259,7 @@ context_recall = await ContextRecall(llm=evaluator_llm).ascore(
 
 두 방식은 대체 관계가 아니라 **보완 관계**입니다. 검색 회귀 테스트는 자체 지표로 싸게 자주 돌리고, 답변 품질은 Ragas로 점검하는 조합이 실용적입니다.
 
-**다음 단계 (미구현):** 정답basic_3의 `ask()`와 `test_cases` 15개에서 `retrieved_contexts`, `response`, `reference`를 뽑아 Ragas 지표로 일괄 평가하기. 원본 저장소에 `f/Ragas` 브랜치가 있지만 이 저장소에는 포함되어 있지 않습니다.
+**연결 방법:** ch05_02는 정답basic_3와 별개의 RAG(SPRI PDF + FAISS)를 Ragas로 평가합니다. 정답basic_3의 `ask()`와 `test_cases` 15개에서 `retrieved_contexts`, `response`, `reference`를 뽑아 같은 방식으로 평가하면 가상Tech RAG도 Ragas로 채점할 수 있습니다. (미구현)
 
 ## 6. 실행 결과
 
@@ -242,7 +281,8 @@ context_recall = await ContextRecall(llm=evaluator_llm).ascore(
 
 ```
 rag_two_branch/
-├─ data/                 원본 PDF (가상Tech_업무가이드.pdf)
+├─ data/                 가상Tech_업무가이드.pdf, SPRI_AI_Brief_2023년12월호_F.pdf,
+│                        ragas_synthetic_dataset.csv (ch05_01 결과 / ch05_02 입력)
 ├─ chroma_db/
 │  ├─ basic/             정답basic_2가 만든 DB
 │  └─ <pdf-hash>/        정답basic_3가 만든 DB (PDF 해시 기반)
@@ -250,6 +290,8 @@ rag_two_branch/
 ├─ 정답basic_2.ipynb      DB 영속성
 ├─ 정답basic_3.ipynb      완성형 RAG + 자체 평가
 ├─ tryRagas.ipynb        Ragas 입문
+├─ ch05_01.ipynb         Ragas 합성 테스트셋 생성
+├─ ch05_02.ipynb         Ragas 일괄 평가
 ├─ run_rag.py            정답basic_3 실행·결과 확인 스크립트
 ├─ pyproject.toml / uv.lock / requirements.txt / pre-requierments.txt
 ├─ 설치가이드.txt / import가이드.txt
